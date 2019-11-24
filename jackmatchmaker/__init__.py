@@ -45,6 +45,37 @@ def pairwise(iterable):
     return zip(*args)
 
 
+def get_config_vars(iterable):
+    vars = []
+
+    for line in iterable:
+        var = line.replace(" ", "").split("=")
+        if (len(var) == 2):
+            vars.append((var[0].replace("-", "_"), var[1]))
+    return iter(vars)
+
+
+def parse_config(file, args):
+    stripfilter = (line.strip() for line in file)
+    linefilter = (line for line in stripfilter if line and not line.startswith('#'))
+    for variable, value in get_config_vars(linefilter):
+        if variable in vars(args):
+            if variable == "pattern-file":
+                args.pattern_file = value
+            elif variable == "exact-matching":
+                args.exact_matching = value
+            elif variable == "client-name":
+                args.client_name = value
+            elif variable == "connect-interval":
+                args.connect_interval = value
+            elif variable == "max-attempts":
+                args.max_attempts = value
+            elif variable == "verbosity":
+                args.verbosity = value
+        else:
+            log.error("Incorrect config option: '%s'", variable)
+
+
 def flatten(nestedlist):
     """Flatten one level of nesting."""
     return chain.from_iterable(nestedlist)
@@ -351,6 +382,8 @@ def main(args=None):
                      help="Include pretty-names from port meta data when listing ports")
     ap.add_argument('-p', '--pattern-file', metavar="FILE",
                     help="Read pattern pairs from FILE (one pattern per line)")
+    ap.add_argument('-C', '--config-file', metavar="FILE",
+                    help="Read program arguments from FILE")
     ap.add_argument('-e', '--exact-matching', action="store_true",
                     help="Enable literal matching mode. Patterns must match port names exactly. "
                          "To still use regular expressions, mark them with slashes, e.g. "
@@ -370,14 +403,20 @@ def main(args=None):
     ap.add_argument('patterns', nargs='*', help="Port pattern pairs")
     args = ap.parse_args(args)
 
+    if args.config_file:
+        try:
+            with open(args.config_file) as fp:
+                parse_config(fp, args)
+        except OSError as exc:
+            return str(exc)
+
     logging.basicConfig(level=args.verbosity,
                         format="%(levelname)s: %(message)s")
-
     if args.patterns and args.pattern_file:
         log.warning("Port pattern pairs from command line will be discarded when pattern file is "
                     "re-read on HUP signal.")
 
-    if args.actions or args.patterns or args.pattern_file:
+    if args.actions or args.patterns or args.pattern_file or args.config_file:
         try:
             matchmaker = JackMatchmaker(pairwise(args.patterns), args.pattern_file,
                                         name=args.client_name, exact_matching=args.exact_matching,
